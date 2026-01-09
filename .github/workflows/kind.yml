@@ -164,6 +164,15 @@ jobs:
       - name: E2E tests that simulate hosted mode
         run: |
           export GOPATH=$(go env GOPATH)
+          echo "=== Debug: Check kubeconfig_managed2 validity ==="
+          export KUBECONFIG=${PWD}/kubeconfig_managed2
+          kubectl cluster-info || echo "ERROR: cluster-info failed"
+          echo "=== Debug: Check API server connectivity ==="
+          kubectl api-resources --verbs=list || echo "ERROR: api-resources failed"
+          echo "=== Debug: Check if CRDs are installed ==="
+          kubectl get crd | grep -E "(policy|operator)" || echo "WARNING: No policy/operator CRDs found"
+          echo "=== Debug: Check pods in managed2 cluster ==="
+          KUBECONFIG=${PWD}/kubeconfig_managed2 kubectl get pods -n open-cluster-management-agent-addon
           KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-hosted-mode-coverage
 
       - name: Upload Hosted Mode Coverage
