@@ -706,7 +706,7 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 			return nil
 		}
 
-		log.Error(err, "Failed to get the PackageManifest", "name", subSpec.Package)
+		opLog.Error(err, "Failed to get the PackageManifest", "name", subSpec.Package)
 
 		return fmt.Errorf(
 			"%wthe subscription defaults could not be determined because the PackageManifest API returned an error",
@@ -1867,6 +1867,8 @@ func messageIncludesSubscription(subscription *operatorv1alpha1.Subscription, me
 func (r *OperatorPolicyReconciler) handleInstallPlan(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription,
 ) (bool, error) {
+	opLog := ctrl.LoggerFrom(ctx)
+
 	if sub == nil {
 		// Note: existing related objects will not be removed by this status update
 		return updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), nil
@@ -1956,7 +1958,7 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	}
 
 	if latestInstallPlan == nil {
-		log.Info(
+		opLog.Info(
 			"No InstallPlan had the CSVs mentioned in the subscription status",
 			"subscription", sub.Name, "namespace", sub.Namespace,
 		)
@@ -2112,7 +2114,7 @@ func (r *OperatorPolicyReconciler) getRemainingCSVApprovals(
 
 	requiredCSVs := sets.New(csvNames...)
 	// First try the current OperatorPolicy without checking others.
-	approvedCSVs := getApprovedCSVs(currentPolicy, currentSub, installPlan)
+	approvedCSVs := getApprovedCSVs(ctx, currentPolicy, currentSub, installPlan)
 
 	if approvedCSVs.IsSuperset(requiredCSVs) {
 		return nil, nil
@@ -2172,7 +2174,7 @@ func (r *OperatorPolicyReconciler) getRemainingCSVApprovals(
 			continue
 		}
 
-		approvedCSVs = approvedCSVs.Union(getApprovedCSVs(&policy, &subTyped, installPlan))
+		approvedCSVs = approvedCSVs.Union(getApprovedCSVs(ctx, &policy, &subTyped, installPlan))
 	}
 
 	unapprovedCSVs := requiredCSVs.Difference(approvedCSVs).UnsortedList()
@@ -2185,7 +2187,10 @@ func (r *OperatorPolicyReconciler) getRemainingCSVApprovals(
 // getApprovedCSVs returns the CSVs in the passed in subscription that can be approved. If no approval can take place,
 // an empty list is returned.
 func getApprovedCSVs(
-	policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription, installPlan *operatorv1alpha1.InstallPlan,
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	sub *operatorv1alpha1.Subscription,
+	installPlan *operatorv1alpha1.InstallPlan,
 ) sets.Set[string] {
 	// Only enforce policies can approve InstallPlans
 	if !policy.Spec.RemediationAction.IsEnforce() {
@@ -2237,7 +2242,7 @@ func getApprovedCSVs(
 		return nil
 	}
 
-	approvedCSVs := getBundleDependencies(installPlan, subscriptionCSV)
+	approvedCSVs := getBundleDependencies(ctx, installPlan, subscriptionCSV)
 
 	return approvedCSVs
 }
@@ -2246,8 +2251,11 @@ func getApprovedCSVs(
 // The package names are mapped to their CSV identifiers before recursively evaluating the dependency chain.
 // The returned set contains the target CSV and all of its dependency CSVs.
 func getBundleDependencies(
-	installPlan *operatorv1alpha1.InstallPlan, targetCSV string,
+	ctx context.Context,
+	installPlan *operatorv1alpha1.InstallPlan,
+	targetCSV string,
 ) sets.Set[string] {
+	opLog := ctrl.LoggerFrom(ctx)
 	approvedCSVs := sets.Set[string]{}
 
 	if targetCSV == "" {
@@ -2270,7 +2278,7 @@ func getBundleDependencies(
 
 		err := json.Unmarshal([]byte(bundle.Properties), &props)
 		if err != nil {
-			log.Error(
+			opLog.Error(
 				err,
 				"The bundle properties on the InstallPlan are invalid. Will skip check for operator dependencies.",
 				"path", fmt.Sprintf("status.bundleLookups[%d]", i),
